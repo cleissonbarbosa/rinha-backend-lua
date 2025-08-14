@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   payment-processor:
     external: true
@@ -27,7 +25,8 @@ services:
   app1:
     image: openresty/openresty:1.21.4.3-alpine
     volumes:
-      - ./app:/usr/local/openresty/nginx:ro
+      - ./app/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      - ./app/lua:/usr/local/openresty/nginx/lua:ro
     networks:
       - rinha-network
       - payment-processor
@@ -46,7 +45,8 @@ services:
   app2:
     image: openresty/openresty:1.21.4.3-alpine
     volumes:
-      - ./app:/usr/local/openresty/nginx:ro
+      - ./app/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      - ./app/lua:/usr/local/openresty/nginx/lua:ro
     networks:
       - rinha-network
       - payment-processor

@@ -13,11 +13,11 @@ _G.config = {
     },
     payment_processors = {
         default = {
-            url = "http://localhost:8080",
+            url = "http://payment-processor-default:8080",
             fee_rate = 0.05  -- Will be updated from health check
         },
         fallback = {
-            url = "http://localhost:8081", 
+            url = "http://payment-processor-fallback:8080", 
             fee_rate = 0.10  -- Will be updated from health check
         }
     },
@@ -30,14 +30,7 @@ _G.config = {
 }
 
 -- Initialize shared dictionaries
-local stats = ngx.shared.stats
 local health_cache = ngx.shared.health_cache
-
--- Initialize counters
-stats:set("default_total_requests", 0)
-stats:set("default_total_amount", 0)
-stats:set("fallback_total_requests", 0)
-stats:set("fallback_total_amount", 0)
 
 -- Set initial health status
 health_cache:set("default_healthy", true)

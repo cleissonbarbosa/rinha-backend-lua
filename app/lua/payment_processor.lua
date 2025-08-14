@@ -1,5 +1,6 @@
 local cjson = require "cjson"
 local redis = require "resty.redis"
+local http = require "simple_http"
 local utils = require "utils"
 local health_monitor = require "health_monitor"
 
@@ -18,7 +19,7 @@ local function get_redis()
     return red
 end
 
--- Process payment with specific processor using curl
+-- Process payment with specific processor using HTTP library
 local function process_with_processor(payment_data, processor_type)
     local processor = _G.config.payment_processors[processor_type]
     
@@ -29,33 +30,33 @@ local function process_with_processor(payment_data, processor_type)
         requestedAt = payment_data.requestedAt
     })
     
-    -- Create curl command
-    local cmd = string.format(
-        "curl -s -X POST %s/payments -H 'Content-Type: application/json' -d '%s' -w '%%{http_code}' -o /tmp/payment_response_%s.json",
-        processor.url,
-        payload:gsub("'", "'\\''"),  -- Escape single quotes
-        processor_type
-    )
+    -- Make HTTP request
+    local res, err = http.request_uri(processor.url .. "/payments", {
+        method = "POST",
+        headers = {
+            ["Content-Type"] = "application/json",
+        },
+        body = payload,
+    })
     
-    -- Execute curl command
-    local handle = io.popen(cmd)
-    local result = handle:read("*a")
-    handle:close()
-    
-    -- Parse HTTP status code
-    local status_code = tonumber(result:match("(%d+)$"))
-    
-    if not status_code or status_code ~= 200 then
-        return false, "HTTP " .. (status_code or "unknown") .. " from " .. processor_type
+    if not res then
+        return false, "Request failed: " .. (err or "unknown")
     end
     
-    -- Update statistics
-    local stats = ngx.shared.stats
-    local key_requests = processor_type .. "_total_requests"
-    local key_amount = processor_type .. "_total_amount"
+    if res.status ~= 200 then
+        return false, "HTTP " .. res.status .. " from " .. processor_type
+    end
     
-    stats:incr(key_requests, 1, 0)
-    stats:incr(key_amount, payment_data.amount, 0)
+    -- Update statistics in Redis
+    local red, err = get_redis()
+    if red then
+        local key_requests = "stats:" .. processor_type .. "_total_requests"
+        local key_amount = "stats:" .. processor_type .. "_total_amount"
+        
+        red:incr(key_requests)
+        red:incrbyfloat(key_amount, payment_data.amount)
+        red:set_keepalive(10000, 50)
+    end
     
     return true, nil
 end
@@ -106,48 +107,53 @@ function _M.start_worker()
         return  -- Only run on worker 0
     end
     
-    local function worker()
-        while true do
-            local red, err = get_redis()
-            if not red then
-                ngx.log(ngx.ERR, "Failed to connect to Redis: " .. (err or "unknown"))
-                ngx.sleep(1)
-                goto continue
-            end
-            
-            -- Block and wait for payment from queue
-            local res, err = red:blpop(_G.config.queue.name, 1)
-            if not res or res == ngx.null then
-                goto continue
-            end
-            
+    local function worker(premature)
+        if premature then
+            return
+        end
+        
+        local red, err = get_redis()
+        if not red then
+            ngx.log(ngx.ERR, "Failed to connect to Redis: " .. (err or "unknown"))
+            -- Schedule next iteration
+            ngx.timer.at(1, worker)
+            return
+        end
+        
+        -- Block and wait for payment from queue
+        local res, err = red:blpop(_G.config.queue.name, 1)
+        red:set_keepalive(10000, 50)
+        
+        if res and res ~= ngx.null then
             local payment_json = res[2]
             local ok, payment_data = pcall(cjson.decode, payment_json)
-            if not ok then
-                ngx.log(ngx.ERR, "Failed to decode payment data: " .. payment_json)
-                goto continue
-            end
-            
-            -- Process the payment
-            local success, result = process_payment(payment_data)
-            if not success then
-                -- Retry logic
-                local retry_count = (payment_data.retry_count or 0) + 1
-                if retry_count <= _G.config.queue.max_retries then
-                    payment_data.retry_count = retry_count
-                    red:rpush(_G.config.queue.name, cjson.encode(payment_data))
-                    ngx.log(ngx.ERR, "Payment retry " .. retry_count .. " for " .. payment_data.correlationId)
+            if ok then
+                -- Process the payment
+                local success, result = process_payment(payment_data)
+                if not success then
+                    -- Retry logic
+                    local retry_count = (payment_data.retry_count or 0) + 1
+                    if retry_count <= _G.config.queue.max_retries then
+                        payment_data.retry_count = retry_count
+                        local red2, _ = get_redis()
+                        if red2 then
+                            red2:rpush(_G.config.queue.name, cjson.encode(payment_data))
+                            red2:set_keepalive(10000, 50)
+                            ngx.log(ngx.ERR, "Payment retry " .. retry_count .. " for " .. payment_data.correlationId)
+                        end
+                    else
+                        ngx.log(ngx.ERR, "Payment failed permanently: " .. payment_data.correlationId .. " - " .. result)
+                    end
                 else
-                    ngx.log(ngx.ERR, "Payment failed permanently: " .. payment_data.correlationId .. " - " .. result)
+                    ngx.log(ngx.INFO, "Payment processed successfully with " .. result .. ": " .. payment_data.correlationId)
                 end
             else
-                ngx.log(ngx.INFO, "Payment processed successfully with " .. result .. ": " .. payment_data.correlationId)
+                ngx.log(ngx.ERR, "Failed to decode payment data: " .. payment_json)
             end
-            
-            red:set_keepalive(10000, 50)
-            
-            ::continue::
         end
+        
+        -- Schedule next iteration
+        ngx.timer.at(0, worker)
     end
     
     -- Start worker in a timer
