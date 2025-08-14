@@ -23,7 +23,7 @@ services:
           memory: "20MB"
 
   app1:
-    build: .
+    image: cleissonb/rinha-backend-lua:latest
     networks:
       - rinha-network
       - payment-processor
@@ -40,7 +40,7 @@ services:
           memory: "150MB"
 
   app2:
-    build: .
+    image: cleissonb/rinha-backend-lua:latest
     networks:
       - rinha-network
       - payment-processor

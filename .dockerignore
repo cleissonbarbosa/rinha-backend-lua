@@ -1,0 +1,42 @@
+# Version control
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Test files
+load_test.sh
+partial-results.json
+info.json
+
+# Node.js files (if any)
+node_modules
+package.json
+package-lock.json
+
+# Build artifacts
+*.log
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Nginx configs that are not used in container
+nginx/
+app1-nginx.conf
+app2-nginx.conf
+nginx-native.conf
+
+# Scripts
+run-payment-gateway.sh
+
+# Mock files
+mock-payment-processor.js

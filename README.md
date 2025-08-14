@@ -11,6 +11,48 @@ Key features:
 - Health check monitoring for external services
 - Performance optimization for competitive scoring
 
+## Quick Start with Docker
+
+### Prerequisites
+- Docker
+- Docker Compose
+
+### Running the Application
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd rinha-backend-lua
+```
+
+2. Start all services:
+```bash
+docker-compose up --build
+```
+
+3. The application will be available at:
+- **Main API**: http://localhost:9999
+- **Health Check**: http://localhost:9999/health
+
+### Available Endpoints
+- `POST /payments` - Process payment requests
+- `GET /payments-summary` - Get payment summary
+- `POST /purge-payments` - Clear payment data
+- `GET /health` - Health check
+
+### Quick Build Script
+For convenience, you can use the build script:
+```bash
+./build.sh
+```
+
+### Stopping Services
+```bash
+docker-compose down
+```
+
+For more detailed Docker usage instructions, see [DOCKER_USAGE.md](DOCKER_USAGE.md).
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
