@@ -14,16 +14,16 @@ send_payment() {
     local amount=$(shuf -i 10-500 -n 1)
     local uuid=$(generate_uuid)
     
-    local start_time=$(date +%s.%3N)
+    local start_time=$(date +%s%3N)
     local response=$(curl -s -w "%{http_code}" -X POST http://localhost:9999/payments \
         -H "Content-Type: application/json" \
         -d "{\"correlationId\":\"$uuid\",\"amount\":$amount}")
-    local end_time=$(date +%s.%3N)
+    local end_time=$(date +%s%3N)
     
     local http_code="${response: -3}"
-    local response_time=$(echo "$end_time - $start_time" | bc)
+    local response_time=$(( end_time - start_time ))
     
-    echo "Payment $id: HTTP $http_code, ${response_time}s, \$${amount}"
+    echo "Payment $id: HTTP $http_code, ${response_time}ms, \$${amount}"
     
     if [ "$http_code" = "202" ]; then
         echo 1 > /tmp/success_$id
@@ -79,7 +79,7 @@ failures=$((total_requests - successes))
 echo "Total de requisições: $total_requests"
 echo "Sucessos: $successes"
 echo "Falhas: $failures"
-echo "Taxa de sucesso: $(echo "scale=2; $successes * 100 / $total_requests" | bc)%"
+echo "Taxa de sucesso: $((successes * 100 / total_requests))%"
 
 # Calculate response time statistics
 if [ -f /tmp/time_1 ]; then
@@ -89,22 +89,22 @@ if [ -f /tmp/time_1 ]; then
     
     min_time=$(head -1 /tmp/all_times.txt)
     max_time=$(tail -1 /tmp/all_times.txt)
-    avg_time=$(awk '{sum+=$1} END {print sum/NR}' /tmp/all_times.txt)
+    avg_time=$(awk '{sum+=$1; count++} END {print int(sum/count)}' /tmp/all_times.txt)
     
-    echo "Tempo mínimo: ${min_time}s"
-    echo "Tempo máximo: ${max_time}s"
-    echo "Tempo médio: ${avg_time}s"
+    echo "Tempo mínimo: ${min_time}ms"
+    echo "Tempo máximo: ${max_time}ms"
+    echo "Tempo médio: ${avg_time}ms"
     
     # Calculate percentiles
     total_lines=$(wc -l < /tmp/all_times.txt)
-    p95_line=$(echo "$total_lines * 0.95" | bc | cut -d. -f1)
-    p99_line=$(echo "$total_lines * 0.99" | bc | cut -d. -f1)
+    p95_line=$((total_lines * 95 / 100))
+    p99_line=$((total_lines * 99 / 100))
     
     p95_time=$(sed -n "${p95_line}p" /tmp/all_times.txt)
     p99_time=$(sed -n "${p99_line}p" /tmp/all_times.txt)
     
-    echo "P95: ${p95_time}s"
-    echo "P99: ${p99_time}s"
+    echo "P95: ${p95_time}ms"
+    echo "P99: ${p99_time}ms"
 fi
 
 echo ""
@@ -113,7 +113,7 @@ curl -s "http://localhost:9999/payments-summary" | jq . 2>/dev/null || curl -s "
 
 echo ""
 echo "Verificando tamanho da fila Redis:"
-redis-cli llen payment_queue
+docker exec $(docker ps -q --filter "name=redis") redis-cli llen payment_queue 2>/dev/null || echo "Redis não acessível ou fila não encontrada"
 
 echo ""
 echo "=== Teste de carga concluído ==="

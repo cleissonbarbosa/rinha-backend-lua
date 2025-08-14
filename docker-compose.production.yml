@@ -6,7 +6,7 @@ networks:
 
 services:
   nginx:
-    image: nginx:1.25-alpine
+    image: nginx:1.29-alpine
     ports:
       - "9999:80"
     volumes:
@@ -57,7 +57,7 @@ services:
           memory: "150MB"
 
   redis:
-    image: redis:7.2-alpine
+    image: redis:8.2-alpine
     volumes:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     command: redis-server /usr/local/etc/redis/redis.conf
