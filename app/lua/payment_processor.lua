@@ -47,9 +47,40 @@ local function process_with_processor(payment_data, processor_type)
         return false, "HTTP " .. res.status .. " from " .. processor_type
     end
     
-    -- Update statistics in Redis
+    -- Update statistics in Redis with timestamp
     local red, err = get_redis()
     if red then
+        -- Use receivedAt (when request was received) for most accurate timing
+        local timestamp = ngx.time()  -- fallback
+        if payment_data.receivedAt then
+            -- receivedAt is ngx.now() which has sub-second precision
+            timestamp = math.floor(payment_data.receivedAt)
+        elseif payment_data.requestedAt then
+            -- Fallback to requestedAt if receivedAt not available
+            local utils = require "utils"
+            local requested_timestamp = utils.iso_to_epoch(payment_data.requestedAt)
+            if requested_timestamp then
+                timestamp = requested_timestamp
+            end
+        end
+        
+        local payment_key = "payment:" .. payment_data.correlationId
+        
+        -- Store payment details with timestamp
+        local payment_record = cjson.encode({
+            correlationId = payment_data.correlationId,
+            amount = payment_data.amount,
+            processor = processor_type,
+            timestamp = timestamp,
+            requestedAt = payment_data.requestedAt
+        })
+        
+        red:setex(payment_key, 3600, payment_record)  -- TTL 1 hour
+        
+        -- Also add to a sorted set for time-based queries
+        red:zadd("payments_by_time", timestamp, payment_data.correlationId)
+        
+        -- Update total counters (for backwards compatibility)
         local key_requests = "stats:" .. processor_type .. "_total_requests"
         local key_amount = "stats:" .. processor_type .. "_total_amount"
         

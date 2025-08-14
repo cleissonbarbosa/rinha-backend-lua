@@ -21,12 +21,15 @@ function _M.iso_to_epoch(iso_string)
         return nil
     end
     
-    local year, month, day, hour, min, sec = iso_string:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+    local pattern = "(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)"
+    local year, month, day, hour, min, sec = iso_string:match(pattern)
     if not year then
         return nil
     end
     
-    return os.time({
+    -- Use os.time with UTC calculation
+    -- os.time assumes local time, so we need to adjust for UTC
+    local local_time = os.time({
         year = tonumber(year),
         month = tonumber(month),
         day = tonumber(day),
@@ -34,6 +37,14 @@ function _M.iso_to_epoch(iso_string)
         min = tonumber(min),
         sec = tonumber(sec)
     })
+    
+    -- Get timezone offset to convert to UTC
+    local now = os.time()
+    local utc_time = os.time(os.date("!*t", now))
+    local local_time_check = os.time(os.date("*t", now))
+    local offset = local_time_check - utc_time
+    
+    return local_time - offset
 end
 
 return _M

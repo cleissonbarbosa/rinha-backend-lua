@@ -32,10 +32,16 @@ local function purge_all_data()
     red:del("stats:fallback_total_requests")
     red:del("stats:fallback_total_amount")
     
-    -- Clear any other payment-related keys in Redis
+    -- Clear payments sorted set
+    red:del("payments_by_time")
+    
+    -- Clear any payment-related keys in Redis
     local keys = red:keys("payment:*")
     if keys and #keys > 0 then
-        red:del(unpack(keys))
+        -- Delete keys in batches to avoid "too many results to unpack" error
+        for i = 1, #keys do
+            red:del(keys[i])
+        end
     end
     
     red:set_keepalive(10000, 50)
