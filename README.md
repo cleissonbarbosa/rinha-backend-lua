@@ -204,8 +204,7 @@ app/lua/
 ├── summary_handler.lua   # Payment summary aggregation
 ├── purge_handler.lua     # Data cleanup operations
 ├── queue_manager.lua     # Redis queue management
-├── utils.lua            # Utility functions
-└── web_interface.lua    # Web interface helpers
+└── utils.lua            # Utility functions
 ```
 
 ### Development Workflow
