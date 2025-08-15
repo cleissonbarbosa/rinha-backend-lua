@@ -7,6 +7,7 @@ set -e
 # Configuration
 IMAGE_NAME="rinha-backend-lua"
 VERSION=${1:-"latest"}
+TIMESTAMP_VERSION=$(date +"%Y%m%d-%H%M%S")
 DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME:-""}
 GITHUB_USERNAME=${GITHUB_USERNAME:-"cleissonbarbosa"}
 
@@ -23,14 +24,20 @@ function push_to_dockerhub() {
     fi
     
     local hub_image="$DOCKER_HUB_USERNAME/$IMAGE_NAME:$VERSION"
+    local hub_image_timestamp="$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TIMESTAMP_VERSION"
     
     echo -e "${BLUE}🏷️  Tagging image for Docker Hub: $hub_image${NC}"
     docker tag ${IMAGE_NAME}:${VERSION} $hub_image
     
+    echo -e "${BLUE}🏷️  Tagging image with timestamp for Docker Hub: $hub_image_timestamp${NC}"
+    docker tag ${IMAGE_NAME}:${VERSION} $hub_image_timestamp
+    
     echo -e "${BLUE}📤 Pushing to Docker Hub...${NC}"
-    if docker push $hub_image; then
+    if docker push $hub_image && docker push $hub_image_timestamp; then
         echo -e "${GREEN}✅ Successfully pushed to Docker Hub: $hub_image${NC}"
+        echo -e "${GREEN}✅ Successfully pushed to Docker Hub: $hub_image_timestamp${NC}"
         echo -e "${BLUE}💡 To use this image: docker pull $hub_image${NC}"
+        echo -e "${BLUE}💡 Or with timestamp: docker pull $hub_image_timestamp${NC}"
     else
         echo -e "${RED}❌ Failed to push to Docker Hub. Make sure you're logged in: docker login${NC}"
     fi
@@ -38,14 +45,20 @@ function push_to_dockerhub() {
 
 function push_to_github() {
     local github_image="ghcr.io/$GITHUB_USERNAME/$IMAGE_NAME:$VERSION"
+    local github_image_timestamp="ghcr.io/$GITHUB_USERNAME/$IMAGE_NAME:$TIMESTAMP_VERSION"
     
     echo -e "${BLUE}🏷️  Tagging image for GitHub Registry: $github_image${NC}"
     docker tag ${IMAGE_NAME}:${VERSION} $github_image
     
+    echo -e "${BLUE}🏷️  Tagging image with timestamp for GitHub Registry: $github_image_timestamp${NC}"
+    docker tag ${IMAGE_NAME}:${VERSION} $github_image_timestamp
+    
     echo -e "${BLUE}📤 Pushing to GitHub Container Registry...${NC}"
-    if docker push $github_image; then
+    if docker push $github_image && docker push $github_image_timestamp; then
         echo -e "${GREEN}✅ Successfully pushed to GitHub Registry: $github_image${NC}"
+        echo -e "${GREEN}✅ Successfully pushed to GitHub Registry: $github_image_timestamp${NC}"
         echo -e "${BLUE}💡 To use this image: docker pull $github_image${NC}"
+        echo -e "${BLUE}💡 Or with timestamp: docker pull $github_image_timestamp${NC}"
     else
         echo -e "${RED}❌ Failed to push to GitHub Registry. Make sure you're logged in: echo \$GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_USERNAME --password-stdin${NC}"
     fi
@@ -70,11 +83,17 @@ function start_services_locally() {
 }
 
 echo -e "${BLUE}🐳 Building Rinha Backend Lua Docker image...${NC}"
+echo -e "${BLUE}📅 Build timestamp: $TIMESTAMP_VERSION${NC}"
 
 # Build da imagem
 docker build -t ${IMAGE_NAME}:${VERSION} .
 
+# Create timestamp version tag
+echo -e "${BLUE}🏷️  Creating timestamp tag: ${IMAGE_NAME}:${TIMESTAMP_VERSION}${NC}"
+docker tag ${IMAGE_NAME}:${VERSION} ${IMAGE_NAME}:${TIMESTAMP_VERSION}
+
 echo -e "${GREEN}✅ Build completed successfully!${NC}"
+echo -e "${GREEN}✅ Created tags: ${IMAGE_NAME}:${VERSION} and ${IMAGE_NAME}:${TIMESTAMP_VERSION}${NC}"
 
 # Ask for push options
 echo -e "${YELLOW}📦 Push options:${NC}"

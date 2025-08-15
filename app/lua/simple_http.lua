@@ -19,7 +19,7 @@ function _M.request_uri(url, options)
     
     -- Create socket
     local sock = ngx.socket.tcp()
-    sock:settimeouts(3000, 3000, 3000) -- 3 second timeouts
+    sock:settimeouts(10000, 10000, 10000) -- 10 second timeouts
     
     local ok, err = sock:connect(host, port)
     if not ok then
