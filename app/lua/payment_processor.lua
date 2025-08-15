@@ -31,20 +31,14 @@ local function process_with_processor(payment_data, processor_type)
     })
     
     -- Make HTTP request
+    -- Use TCP client (allowed in timer context)
     local res, err = http.request_uri(processor.url .. "/payments", {
         method = "POST",
-        headers = {
-            ["Content-Type"] = "application/json",
-        },
+        headers = { ["Content-Type"] = "application/json" },
         body = payload,
     })
-    
-    if not res then
-        return false, "Request failed: " .. (err or "unknown")
-    end
-    
-    if res.status ~= 200 then
-        return false, "HTTP " .. res.status .. " from " .. processor_type
+    if not res or res.status ~= 200 then
+        return false, "HTTP " .. (res and res.status or 0) .. " from " .. processor_type
     end
     
     -- Update statistics in Redis with timestamp
@@ -65,7 +59,10 @@ local function process_with_processor(payment_data, processor_type)
         end
         
         local payment_key = "payment:" .. payment_data.correlationId
-        
+
+        -- Store and aggregate using a single pipeline to reduce Redis RTTs
+        red:init_pipeline()
+
         -- Store payment details with timestamp
         local payment_record = cjson.encode({
             correlationId = payment_data.correlationId,
@@ -74,18 +71,30 @@ local function process_with_processor(payment_data, processor_type)
             timestamp = timestamp,
             requestedAt = payment_data.requestedAt
         })
-        
         red:setex(payment_key, 3600, payment_record)  -- TTL 1 hour
-        
-        -- Also add to a sorted set for time-based queries
+
+        -- Add to a sorted set for time-based diagnostics (kept for compatibility)
         red:zadd("payments_by_time", timestamp, payment_data.correlationId)
-        
-        -- Update total counters (for backwards compatibility)
+
+        -- Update total counters
         local key_requests = "stats:" .. processor_type .. "_total_requests"
         local key_amount = "stats:" .. processor_type .. "_total_amount"
-        
         red:incr(key_requests)
         red:incrbyfloat(key_amount, payment_data.amount)
+
+        -- Update per-second aggregation bucket for faster /payments-summary queries
+        local bucket = "stats_sec:" .. tostring(timestamp)
+        if processor_type == "default" then
+            red:hincrby(bucket, "default_requests", 1)
+            red:hincrbyfloat(bucket, "default_amount", payment_data.amount)
+        else
+            red:hincrby(bucket, "fallback_requests", 1)
+            red:hincrbyfloat(bucket, "fallback_amount", payment_data.amount)
+        end
+        -- Optionally expire buckets after 2 hours to limit memory
+        red:expire(bucket, 2 * 60 * 60)
+
+        red:commit_pipeline()
         red:set_keepalive(10000, 50)
     end
     

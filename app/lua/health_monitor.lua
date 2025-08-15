@@ -11,17 +11,13 @@ local function check_processor_health(processor_type)
     -- Make health check request
     local res, err = http.request_uri(processor.url .. "/payments/service-health", {
         method = "GET",
-        headers = {
-            ["Content-Type"] = "application/json",
-        },
+        headers = { ["Content-Type"] = "application/json" },
     })
-    
     if not res or res.status ~= 200 then
         health_cache:set(processor_type .. "_healthy", false, 60)
         health_cache:set(processor_type .. "_min_response_time", 5000, 60)
         return false
     end
-    
     local ok, health_data = pcall(cjson.decode, res.body)
     if not ok then
         health_cache:set(processor_type .. "_healthy", false, 60)

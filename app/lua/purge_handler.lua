@@ -35,6 +35,14 @@ local function purge_all_data()
     -- Clear payments sorted set
     red:del("payments_by_time")
     
+    -- Clear per-second aggregation buckets
+    local sec_keys = red:keys("stats_sec:*")
+    if sec_keys and #sec_keys > 0 then
+        for i = 1, #sec_keys do
+            red:del(sec_keys[i])
+        end
+    end
+    
     -- Clear any payment-related keys in Redis
     local keys = red:keys("payment:*")
     if keys and #keys > 0 then
