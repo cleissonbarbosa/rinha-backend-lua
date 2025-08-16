@@ -86,7 +86,7 @@ echo -e "${BLUE}🐳 Building Rinha Backend Lua Docker image...${NC}"
 echo -e "${BLUE}📅 Build timestamp: $TIMESTAMP_VERSION${NC}"
 
 # Build da imagem
-docker build -t ${IMAGE_NAME}:${VERSION} .
+docker build --no-cache -t ${IMAGE_NAME}:${VERSION} .
 
 # Create timestamp version tag
 echo -e "${BLUE}🏷️  Creating timestamp tag: ${IMAGE_NAME}:${TIMESTAMP_VERSION}${NC}"

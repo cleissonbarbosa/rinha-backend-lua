@@ -143,62 +143,70 @@ end
 -- Worker function to process queued payments
 function _M.start_worker()
     if ngx.worker.id() ~= 0 then
-        return  -- Only run on worker 0
+        return  -- Only run spawner on worker 0
     end
-    
-    local function worker(premature)
-        if premature then
-            return
-        end
-        
+
+    local function loop_worker(premature)
+        if premature then return end
+
+        -- Get one Redis connection for this blocking pop
         local red, err = get_redis()
         if not red then
-            ngx.log(ngx.ERR, "Failed to connect to Redis: " .. (err or "unknown"))
-            -- Schedule next iteration
-            ngx.timer.at(1, worker)
+            ngx.log(ngx.ERR, "Worker: Redis connect failed: " .. (err or "unknown"))
+            ngx.timer.at(0.5, loop_worker)
             return
         end
-        
-        -- Block and wait for payment from queue
-        local res, err = red:blpop(_G.config.queue.name, 1)
-        red:set_keepalive(10000, 50)
-        
+
+        -- Use long read timeout for blocking pop to avoid 1s timeouts
+        if red.set_timeouts then
+            red:set_timeouts(1000, 1000, 65000)
+        end
+        -- Block until there is an item; 0 means block indefinitely in Redis lib
+        local res, err = red:blpop(_G.config.queue.name, 0)
+        red:set_keepalive(10000, 100)
+
         if res and res ~= ngx.null then
             local payment_json = res[2]
             local ok, payment_data = pcall(cjson.decode, payment_json)
-            if ok then
-                -- Process the payment
+            if ok and type(payment_data) == "table" then
                 local success, result = process_payment(payment_data)
                 if not success then
-                    -- Retry logic
                     local retry_count = (payment_data.retry_count or 0) + 1
                     if retry_count <= _G.config.queue.max_retries then
                         payment_data.retry_count = retry_count
-                        local red2, _ = get_redis()
+                        local red2 = get_redis()
                         if red2 then
                             red2:rpush(_G.config.queue.name, cjson.encode(payment_data))
-                            red2:set_keepalive(10000, 50)
-                            ngx.log(ngx.ERR, "Payment retry " .. retry_count .. " for " .. payment_data.correlationId)
+                            red2:set_keepalive(10000, 100)
                         end
+                        ngx.log(ngx.WARN, "Payment retry " .. retry_count .. " for " .. tostring(payment_data.correlationId))
                     else
-                        ngx.log(ngx.ERR, "Payment failed permanently: " .. payment_data.correlationId .. " - " .. result)
+                        ngx.log(ngx.ERR, "Payment failed permanently: " .. tostring(payment_data.correlationId) .. " - " .. tostring(result))
                     end
-                else
-                    ngx.log(ngx.INFO, "Payment processed successfully with " .. result .. ": " .. payment_data.correlationId)
                 end
             else
-                ngx.log(ngx.ERR, "Failed to decode payment data: " .. payment_json)
+                ngx.log(ngx.ERR, "Worker: decode failed: " .. tostring(payment_json))
+            end
+        elseif err then
+            if tostring(err) ~= "timeout" then
+                ngx.log(ngx.ERR, "BLPOP error: " .. tostring(err))
             end
         end
-        
-        -- Schedule next iteration
-        ngx.timer.at(0, worker)
+
+        -- Immediately schedule next blocking wait
+        local ok, terr = ngx.timer.at(0, loop_worker)
+        if not ok then
+            ngx.log(ngx.ERR, "Failed to reschedule worker: " .. tostring(terr))
+        end
     end
-    
-    -- Start worker in a timer
-    local ok, err = ngx.timer.at(0, worker)
-    if not ok then
-        ngx.log(ngx.ERR, "Failed to start payment processor worker: " .. err)
+
+    -- Spawn N concurrent workers
+    local n = _G.config.queue.concurrency or 16
+    for i = 1, n do
+        local ok, err = ngx.timer.at(0, loop_worker)
+        if not ok then
+            ngx.log(ngx.ERR, "Failed to start worker #" .. i .. ": " .. tostring(err))
+        end
     end
 end
 

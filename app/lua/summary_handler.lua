@@ -46,7 +46,7 @@ else
     local to_ms = utils.iso_to_epoch_ms(to_time)
 
     if from_ms and to_ms and to_ms > from_ms then
-        -- ZRANGEBYSCORE is inclusive by default; use to_ms - 1 to make the upper bound exclusive
+        -- Enforce [from, to) semantics: inclusive lower bound, exclusive upper bound
         local ids = red:zrangebyscore("payments_by_time_ms", from_ms, to_ms - 1)
         if ids and ids ~= ngx.null and #ids > 0 then
             -- Batch GET payment:<id> and aggregate

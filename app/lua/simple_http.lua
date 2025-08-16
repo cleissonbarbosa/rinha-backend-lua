@@ -34,7 +34,8 @@ function _M.request_uri(url, options)
     local request_lines = {
         method .. " " .. path .. " HTTP/1.1",
         "Host: " .. host .. ":" .. port,
-        "Connection: close"
+        "Connection: keep-alive",
+        "Keep-Alive: timeout=30"
     }
     
     -- Add custom headers
@@ -78,6 +79,7 @@ function _M.request_uri(url, options)
     
     -- Read headers until empty line
     local content_length = 0
+    local is_chunked = false
     while true do
         local header_line, err = sock:receive("*l")
         if not header_line then
@@ -94,29 +96,73 @@ function _M.request_uri(url, options)
         if length then
             content_length = tonumber(length)
         end
+        -- Check for Transfer-Encoding: chunked
+        local te = header_line:match("^[Tt]ransfer%-%[Ee]ncoding:%s*(.-)$")
+        if te and te:lower():find("chunked", 1, true) then
+            is_chunked = true
+        end
     end
     
     -- Read body
     local response_body = ""
-    if content_length > 0 then
+    if is_chunked then
+        -- Read chunked response per RFC 7230
+        while true do
+            local size_line, err = sock:receive("*l")
+            if not size_line then
+                sock:close()
+                return nil, "failed to read chunk size: " .. (err or "unknown")
+            end
+            local chunk_size = tonumber(size_line, 16)
+            if not chunk_size then
+                sock:close()
+                return nil, "invalid chunk size line: " .. tostring(size_line)
+            end
+            if chunk_size == 0 then
+                -- Read trailing CRLF and possible trailer headers until empty line
+                -- Consume possible trailer headers
+                while true do
+                    local trailer, err = sock:receive("*l")
+                    if not trailer then
+                        sock:close()
+                        return nil, "failed to read chunk trailer: " .. (err or "unknown")
+                    end
+                    if trailer == "" then break end
+                end
+                break
+            end
+            local chunk, err = sock:receive(chunk_size)
+            if not chunk then
+                sock:close()
+                return nil, "failed to read chunk data: " .. (err or "unknown")
+            end
+            response_body = response_body .. chunk
+            -- Read the trailing CRLF for this chunk
+            local crlf, err = sock:receive(2)
+            if not crlf then
+                sock:close()
+                return nil, "failed to read chunk CRLF: " .. (err or "unknown")
+            end
+        end
+    elseif content_length > 0 then
         response_body, err = sock:receive(content_length)
         if not response_body then
             sock:close()
             return nil, "failed to read body: " .. (err or "unknown")
         end
     else
-        -- Read until connection closes for chunked/unknown length
-        while true do
-            local data, err = sock:receive(1024)
-            if not data then
-                break
-            end
-            response_body = response_body .. data
-        end
+        -- Unknown length and not chunked: close connection to finish read
+        -- Override keep-alive in this rare case to avoid indefinite waits
+        sock:close()
+        return { status = status, body = response_body }
     end
     
-    sock:close()
-    
+    -- Put socket back to pool for reuse
+    local ok_keep = sock:setkeepalive(10000, 128)
+    if not ok_keep then
+        sock:close()
+    end
+
     return {
         status = status,
         body = response_body

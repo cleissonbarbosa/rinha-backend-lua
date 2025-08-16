@@ -1,18 +1,42 @@
 local _M = {}
 
--- Validate UUID format
+-- Fast UUID v4-ish validation without heavy regex
+local function is_hex_digit(c)
+    local b = string.byte(c)
+    -- '0'-'9' or 'a'-'f' or 'A'-'F'
+    return (b >= 48 and b <= 57) or (b >= 97 and b <= 102) or (b >= 65 and b <= 70)
+end
+
 function _M.is_valid_uuid(str)
-    if type(str) ~= "string" then
+    if type(str) ~= "string" or #str ~= 36 then
         return false
     end
-    
-    local pattern = "^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]%-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$"
-    return string.match(str, pattern) ~= nil
+    -- check dash positions
+    if str:byte(9) ~= 45 or str:byte(14) ~= 45 or str:byte(19) ~= 45 or str:byte(24) ~= 45 then
+        return false
+    end
+    -- check hex characters
+    for i = 1, 36 do
+        if i == 9 or i == 14 or i == 19 or i == 24 then
+            -- '-'
+        else
+            if not is_hex_digit(str:sub(i, i)) then
+                return false
+            end
+        end
+    end
+    return true
 end
 
 -- Get current timestamp in ISO format
 function _M.get_iso_timestamp()
-    return os.date("!%Y-%m-%dT%H:%M:%S.000Z")
+    -- Use high-resolution time to include real milliseconds
+    local now = ngx.now and ngx.now() or (os.time())
+    local sec = math.floor(now)
+    local ms = math.floor((now - sec) * 1000)
+    if ms < 0 then ms = 0 end
+    if ms > 999 then ms = 999 end
+    return os.date("!%Y-%m-%dT%H:%M:%S", sec) .. string.format(".%03dZ", ms)
 end
 
 -- Convert timestamp to epoch for comparison

@@ -52,6 +52,6 @@ if not success then
     return
 end
 
--- Return immediate success response
-ngx.status = 202
-ngx.say(cjson.encode({message = "Payment accepted for processing"}))
+-- Return immediate success response (no body for lower latency)
+ngx.header.content_length = 0
+return ngx.exit(202)

@@ -7,9 +7,9 @@ _G.config = {
     redis = {
         host = os.getenv("REDIS_HOST") or "redis",
         port = tonumber(os.getenv("REDIS_PORT")) or 6379,
-        timeout = 1000,
-        pool_size = 100,
-        backlog = 50
+    timeout = 1000,
+    pool_size = tonumber(os.getenv("REDIS_POOL_SIZE")) or 200,
+    backlog = 100
     },
     payment_processors = {
         default = {
@@ -23,8 +23,9 @@ _G.config = {
     },
     queue = {
         name = "payment_queue",
-        max_retries = 3,
-        retry_delay = 1000
+    max_retries = 3,
+    retry_delay = 1000,
+    concurrency = tonumber(os.getenv("QUEUE_CONCURRENCY")) or 8
     },
     instance_id = os.getenv("INSTANCE_ID") or "app1"
 }
@@ -38,4 +39,4 @@ health_cache:set("fallback_healthy", true)
 health_cache:set("default_min_response_time", 100)
 health_cache:set("fallback_min_response_time", 200)
 
-ngx.log(ngx.ERR, "Payment processor initialized for instance: " .. _G.config.instance_id)
+ngx.log(ngx.ERR, "Payment processor initialized for instance: ", _G.config.instance_id)
