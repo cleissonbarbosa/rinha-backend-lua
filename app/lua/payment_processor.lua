@@ -44,23 +44,20 @@ local function process_with_processor(payment_data, processor_type)
     -- Update statistics in Redis with timestamp
     local red, err = get_redis()
     if red then
-        -- Use receivedAt (when request was received) for most accurate timing
-        local timestamp = ngx.time()  -- fallback
-        if payment_data.receivedAt then
-            -- receivedAt is ngx.now() which has sub-second precision
-            timestamp = math.floor(payment_data.receivedAt)
-        elseif payment_data.requestedAt then
-            -- Fallback to requestedAt if receivedAt not available
-            local utils = require "utils"
-            local requested_timestamp = utils.iso_to_epoch(payment_data.requestedAt)
-            if requested_timestamp then
-                timestamp = requested_timestamp
-            end
+        -- Prefer requestedAt (what PP likely uses to account windows); fallback to now
+        local ts_ms = nil
+        if payment_data.requestedAt then
+            ts_ms = require("utils").iso_to_epoch_ms(payment_data.requestedAt)
         end
+        local now_sec = ngx.now() or os.time()
+        if not ts_ms then
+            ts_ms = math.floor(now_sec * 1000)
+        end
+        local timestamp = math.floor(ts_ms / 1000)
         
-        local payment_key = "payment:" .. payment_data.correlationId
+    local payment_key = "payment:" .. payment_data.correlationId
 
-        -- Store and aggregate using a single pipeline to reduce Redis RTTs
+    -- Store and aggregate using a single pipeline to reduce Redis RTTs
         red:init_pipeline()
 
         -- Store payment details with timestamp
@@ -74,7 +71,9 @@ local function process_with_processor(payment_data, processor_type)
         red:setex(payment_key, 3600, payment_record)  -- TTL 1 hour
 
         -- Add to a sorted set for time-based diagnostics (kept for compatibility)
-        red:zadd("payments_by_time", timestamp, payment_data.correlationId)
+    red:zadd("payments_by_time", timestamp, payment_data.correlationId)
+    -- Millisecond-precision timeline for accurate window queries (based on requestedAt)
+    red:zadd("payments_by_time_ms", ts_ms, payment_data.correlationId)
 
         -- Update total counters
         local key_requests = "stats:" .. processor_type .. "_total_requests"

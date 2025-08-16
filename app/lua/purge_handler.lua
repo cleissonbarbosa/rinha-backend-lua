@@ -34,6 +34,7 @@ local function purge_all_data()
     
     -- Clear payments sorted set
     red:del("payments_by_time")
+    red:del("payments_by_time_ms")
     
     -- Clear per-second aggregation buckets
     local sec_keys = red:keys("stats_sec:*")

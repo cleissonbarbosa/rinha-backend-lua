@@ -41,48 +41,73 @@ if not from_time or not to_time then
     fallback_requests = tonumber(red:get("stats:fallback_total_requests")) or 0
     fallback_amount = tonumber(red:get("stats:fallback_total_amount")) or 0
 else
-    -- Fast aggregation using per-second buckets stored in Redis hashes
-    local from_timestamp = utils.iso_to_epoch(from_time)
-    local to_timestamp = utils.iso_to_epoch(to_time)
+    -- Millisecond-precision window using ZSET (payments_by_time_ms) with [from, to) semantics
+    local from_ms = utils.iso_to_epoch_ms(from_time)
+    local to_ms = utils.iso_to_epoch_ms(to_time)
 
-    if from_timestamp and to_timestamp then
-        if to_timestamp < from_timestamp then
-            -- Invalid window, return zeros
-        else
-            -- Iterate per-second buckets to avoid per-payment scans (bounded loop ~seconds range)
-            local start_sec = math.floor(from_timestamp)
-            local end_sec = math.floor(to_timestamp)
-
-            -- Pipeline HMGETs to reduce RTTs
+    if from_ms and to_ms and to_ms > from_ms then
+        -- ZRANGEBYSCORE is inclusive by default; use to_ms - 1 to make the upper bound exclusive
+        local ids = red:zrangebyscore("payments_by_time_ms", from_ms, to_ms - 1)
+        if ids and ids ~= ngx.null and #ids > 0 then
+            -- Batch GET payment:<id> and aggregate
             red:init_pipeline()
-            local keys = {}
-            for sec = start_sec, end_sec do
-                local key = "stats_sec:" .. sec
-                table.insert(keys, key)
-                red:hmget(key, "default_requests", "default_amount", "fallback_requests", "fallback_amount")
+            for _, id in ipairs(ids) do
+                red:get("payment:" .. id)
             end
-            local results, perr = red:commit_pipeline()
-            if results then
-                for _, vals in ipairs(results) do
-                    if vals and vals ~= ngx.null then
-                        local dreq = tonumber(vals[1]) or 0
-                        local damt = tonumber(vals[2]) or 0
-                        local freq = tonumber(vals[3]) or 0
-                        local famt = tonumber(vals[4]) or 0
-                        default_requests = default_requests + dreq
-                        default_amount = default_amount + damt
-                        fallback_requests = fallback_requests + freq
-                        fallback_amount = fallback_amount + famt
+            local rows = red:commit_pipeline()
+            if rows then
+                for _, row in ipairs(rows) do
+                    if row and row ~= ngx.null then
+                        local ok, data = pcall(cjson.decode, row)
+                        if ok and data and data.amount and data.processor then
+                            if data.processor == "default" then
+                                default_requests = default_requests + 1
+                                default_amount = default_amount + (tonumber(data.amount) or 0)
+                            else
+                                fallback_requests = fallback_requests + 1
+                                fallback_amount = fallback_amount + (tonumber(data.amount) or 0)
+                            end
+                        end
                     end
                 end
             end
         end
     else
-        -- Fallback to total counters if timestamp parsing fails
-        default_requests = tonumber(red:get("stats:default_total_requests")) or 0
-        default_amount = tonumber(red:get("stats:default_total_amount")) or 0
-        fallback_requests = tonumber(red:get("stats:fallback_total_requests")) or 0
-        fallback_amount = tonumber(red:get("stats:fallback_total_amount")) or 0
+        -- Fallback fast path using per-second buckets but honoring [from, to) semantics
+        local from_sec = utils.iso_to_epoch(from_time)
+        local to_sec = utils.iso_to_epoch(to_time)
+        if from_sec and to_sec and to_sec > from_sec then
+            local start_sec = math.floor(from_sec)
+            local end_sec_exclusive = math.floor(to_sec)
+            if end_sec_exclusive > start_sec then
+                red:init_pipeline()
+                for sec = start_sec, end_sec_exclusive - 1 do
+                    local key = "stats_sec:" .. sec
+                    red:hmget(key, "default_requests", "default_amount", "fallback_requests", "fallback_amount")
+                end
+                local results = red:commit_pipeline()
+                if results then
+                    for _, vals in ipairs(results) do
+                        if vals and vals ~= ngx.null then
+                            local dreq = tonumber(vals[1]) or 0
+                            local damt = tonumber(vals[2]) or 0
+                            local freq = tonumber(vals[3]) or 0
+                            local famt = tonumber(vals[4]) or 0
+                            default_requests = default_requests + dreq
+                            default_amount = default_amount + damt
+                            fallback_requests = fallback_requests + freq
+                            fallback_amount = fallback_amount + famt
+                        end
+                    end
+                end
+            end
+        else
+            -- Fallback to total counters if parsing fails
+            default_requests = tonumber(red:get("stats:default_total_requests")) or 0
+            default_amount = tonumber(red:get("stats:default_total_amount")) or 0
+            fallback_requests = tonumber(red:get("stats:fallback_total_requests")) or 0
+            fallback_amount = tonumber(red:get("stats:fallback_total_amount")) or 0
+        end
     end
 end
 
