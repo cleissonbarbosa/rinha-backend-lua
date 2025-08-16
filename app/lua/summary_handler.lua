@@ -47,25 +47,49 @@ else
 
     if from_ms and to_ms and to_ms > from_ms then
         -- Enforce [from, to) semantics: inclusive lower bound, exclusive upper bound
-        local ids = red:zrangebyscore("payments_by_time_ms", from_ms, to_ms - 1)
-        if ids and ids ~= ngx.null and #ids > 0 then
-            -- Batch GET payment:<id> and aggregate
-            red:init_pipeline()
-            for _, id in ipairs(ids) do
-                red:get("payment:" .. id)
+        local members = red:zrangebyscore("payments_by_time_ms", from_ms, to_ms - 1)
+        if members and members ~= ngx.null and #members > 0 then
+            local all_enriched = true
+            for _, m in ipairs(members) do
+                if not string.match(m, "^[^|]+|[^|]+|[^|]+$") then
+                    all_enriched = false
+                    break
+                end
             end
-            local rows = red:commit_pipeline()
-            if rows then
-                for _, row in ipairs(rows) do
-                    if row and row ~= ngx.null then
-                        local ok, data = pcall(cjson.decode, row)
-                        if ok and data and data.amount and data.processor then
-                            if data.processor == "default" then
-                                default_requests = default_requests + 1
-                                default_amount = default_amount + (tonumber(data.amount) or 0)
-                            else
-                                fallback_requests = fallback_requests + 1
-                                fallback_amount = fallback_amount + (tonumber(data.amount) or 0)
+
+            if all_enriched then
+                for _, m in ipairs(members) do
+                    local _, proc, amt = string.match(m, "^([^|]+)|([^|]+)|([^|]+)$")
+                    local amount_num = tonumber(amt) or 0
+                    if proc == "default" then
+                        default_requests = default_requests + 1
+                        default_amount = default_amount + amount_num
+                    else
+                        fallback_requests = fallback_requests + 1
+                        fallback_amount = fallback_amount + amount_num
+                    end
+                end
+            else
+                -- Backward compatibility: use GET pipeline approach
+                red:init_pipeline()
+                for _, m in ipairs(members) do
+                    local id = string.match(m, "^([^|]+)|") or m
+                    red:get("payment:" .. id)
+                end
+                local rows = red:commit_pipeline()
+                if rows then
+                    for _, row in ipairs(rows) do
+                        if row and row ~= ngx.null then
+                            local ok, data = pcall(cjson.decode, row)
+                            if ok and data and data.amount and data.processor then
+                                local amount_num = tonumber(data.amount) or 0
+                                if data.processor == "default" then
+                                    default_requests = default_requests + 1
+                                    default_amount = default_amount + amount_num
+                                else
+                                    fallback_requests = fallback_requests + 1
+                                    fallback_amount = fallback_amount + amount_num
+                                end
                             end
                         end
                     end
