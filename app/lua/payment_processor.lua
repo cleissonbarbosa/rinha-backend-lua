@@ -24,10 +24,12 @@ local function process_with_processor(payment_data, processor_type)
     local processor = _G.config.payment_processors[processor_type]
 
     -- Prepare the JSON payload
+    -- IMPORTANT: use the processing-time as requestedAt to match Payment Processor windowing
+    local processing_iso = utils.get_iso_timestamp()
     local payload = cjson.encode({
         correlationId = payment_data.correlationId,
         amount = payment_data.amount,
-        requestedAt = payment_data.requestedAt
+        requestedAt = processing_iso
     })
 
     -- Make HTTP request
@@ -46,15 +48,8 @@ local function process_with_processor(payment_data, processor_type)
     -- Update statistics in Redis with timestamp
     local red, err = get_redis()
     if red then
-        -- Prefer requestedAt (what PP likely uses to account windows); fallback to now
-        local ts_ms = nil
-        if payment_data.requestedAt then
-            ts_ms = utils.iso_to_epoch_ms(payment_data.requestedAt)
-        end
-        local now_sec = ngx.now() or os.time()
-        if not ts_ms then
-            ts_ms = math.floor(now_sec * 1000)
-        end
+        -- Use the same timestamp we sent to the PP (processing time)
+        local ts_ms = utils.iso_to_epoch_ms(processing_iso) or (math.floor((ngx.now() or os.time()) * 1000))
         local timestamp = math.floor(ts_ms / 1000)
 
         local payment_key = "payment:" .. payment_data.correlationId
@@ -68,7 +63,7 @@ local function process_with_processor(payment_data, processor_type)
             amount = payment_data.amount,
             processor = processor_type,
             timestamp = timestamp,
-            requestedAt = payment_data.requestedAt
+            requestedAt = processing_iso
         })
         red:setex(payment_key, 3600, payment_record) -- TTL 1 hour
 
@@ -76,8 +71,8 @@ local function process_with_processor(payment_data, processor_type)
         red:zadd("payments_by_time", timestamp, payment_data.correlationId)
         -- Millisecond-precision timeline for accurate window queries (based on requestedAt)
         -- Store enriched member to eliminate subsequent GETs during summary aggregation
-        local z_member_ms = tostring(payment_data.correlationId) .. "|" .. tostring(processor_type) .. "|" ..
-                                tostring(payment_data.amount)
+    local z_member_ms = tostring(payment_data.correlationId) .. "|" .. tostring(processor_type) .. "|" ..
+                tostring(payment_data.amount)
         red:zadd("payments_by_time_ms", ts_ms, z_member_ms)
 
         -- Update total counters

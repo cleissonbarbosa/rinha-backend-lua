@@ -39,4 +39,4 @@ health_cache:set("fallback_healthy", true)
 health_cache:set("default_min_response_time", 100)
 health_cache:set("fallback_min_response_time", 200)
 
-ngx.log(ngx.ERR, "Payment processor initialized for instance: ", _G.config.instance_id)
+ngx.log(ngx.INFO, "Payment processor initialized for instance: ", _G.config.instance_id)

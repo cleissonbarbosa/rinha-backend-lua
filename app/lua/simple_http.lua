@@ -92,9 +92,10 @@ function _M.request_uri(url, options)
         if length then
             content_length = tonumber(length)
         end
-        -- Check for Transfer-Encoding: chunked
-        local te = header_line:match("^[Tt]ransfer%-%[Ee]ncoding:%s*(.-)$")
-        if te and te:lower():find("chunked", 1, true) then
+        -- Check for Transfer-Encoding: chunked (case-insensitive)
+        local lower = header_line:lower()
+        local te = lower:match("^transfer%-encoding:%s*(.-)$")
+        if te and te:find("chunked", 1, true) then
             is_chunked = true
         end
     end
