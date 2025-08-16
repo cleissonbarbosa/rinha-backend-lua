@@ -6,12 +6,12 @@ local utils = require "utils"
 local function get_redis()
     local red = redis:new()
     red:set_timeouts(1000, 1000, 1000)
-    
+
     local ok, err = red:connect(_G.config.redis.host, _G.config.redis.port)
     if not ok then
         return nil, err
     end
-    
+
     return red
 end
 
@@ -25,7 +25,9 @@ local red, err = get_redis()
 if not red then
     ngx.log(ngx.ERR, "Failed to connect to Redis: " .. (err or "unknown"))
     ngx.status = 500
-    ngx.say(cjson.encode({error = "Internal server error"}))
+    ngx.say(cjson.encode({
+        error = "Internal server error"
+    }))
     return
 end
 

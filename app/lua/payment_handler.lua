@@ -8,35 +8,45 @@ local body = ngx.req.get_body_data()
 
 if not body then
     ngx.status = 400
-    ngx.say(cjson.encode({error = "Missing request body"}))
+    ngx.say(cjson.encode({
+        error = "Missing request body"
+    }))
     return
 end
 
 local ok, payment_data = pcall(cjson.decode, body)
 if not ok then
     ngx.status = 400
-    ngx.say(cjson.encode({error = "Invalid JSON"}))
+    ngx.say(cjson.encode({
+        error = "Invalid JSON"
+    }))
     return
 end
 
 -- Validate required fields
 if not payment_data.correlationId or not payment_data.amount then
     ngx.status = 400
-    ngx.say(cjson.encode({error = "Missing required fields: correlationId, amount"}))
+    ngx.say(cjson.encode({
+        error = "Missing required fields: correlationId, amount"
+    }))
     return
 end
 
 -- Validate UUID format
 if not utils.is_valid_uuid(payment_data.correlationId) then
     ngx.status = 400
-    ngx.say(cjson.encode({error = "Invalid correlationId format"}))
+    ngx.say(cjson.encode({
+        error = "Invalid correlationId format"
+    }))
     return
 end
 
 -- Validate amount
 if type(payment_data.amount) ~= "number" or payment_data.amount <= 0 then
     ngx.status = 400
-    ngx.say(cjson.encode({error = "Invalid amount"}))
+    ngx.say(cjson.encode({
+        error = "Invalid amount"
+    }))
     return
 end
 
@@ -48,7 +58,9 @@ local success, err = queue_manager.enqueue_payment(payment_data)
 if not success then
     ngx.log(ngx.ERR, "Failed to queue payment: " .. (err or "unknown error"))
     ngx.status = 500
-    ngx.say(cjson.encode({error = "Internal server error"}))
+    ngx.say(cjson.encode({
+        error = "Internal server error"
+    }))
     return
 end
 

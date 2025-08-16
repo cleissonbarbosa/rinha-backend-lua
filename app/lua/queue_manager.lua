@@ -7,12 +7,12 @@ local _M = {}
 local function get_redis()
     local red = redis:new()
     red:set_timeouts(1000, 1000, 1000)
-    
+
     local ok, err = red:connect(_G.config.redis.host, _G.config.redis.port)
     if not ok then
         return nil, err
     end
-    
+
     return red
 end
 
@@ -22,16 +22,16 @@ function _M.enqueue_payment(payment_data)
     if not red then
         return false, "Redis connection failed: " .. (err or "unknown")
     end
-    
+
     local payment_json = cjson.encode(payment_data)
     local res, err = red:rpush(_G.config.queue.name, payment_json)
-    
+
     red:set_keepalive(10000, 50)
-    
+
     if not res then
         return false, "Queue push failed: " .. (err or "unknown")
     end
-    
+
     return true
 end
 
@@ -41,10 +41,10 @@ function _M.get_queue_length()
     if not red then
         return 0
     end
-    
+
     local length = red:llen(_G.config.queue.name) or 0
     red:set_keepalive(10000, 50)
-    
+
     return length
 end
 

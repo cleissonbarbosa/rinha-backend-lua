@@ -10,37 +10,39 @@ local _M = {}
 local function get_redis()
     local red = redis:new()
     red:set_timeouts(1000, 1000, 1000)
-    
+
     local ok, err = red:connect(_G.config.redis.host, _G.config.redis.port)
     if not ok then
         return nil, err
     end
-    
+
     return red
 end
 
 -- Process payment with specific processor using HTTP library
 local function process_with_processor(payment_data, processor_type)
     local processor = _G.config.payment_processors[processor_type]
-    
+
     -- Prepare the JSON payload
     local payload = cjson.encode({
         correlationId = payment_data.correlationId,
         amount = payment_data.amount,
         requestedAt = payment_data.requestedAt
     })
-    
+
     -- Make HTTP request
     -- Use TCP client (allowed in timer context)
     local res, err = http.request_uri(processor.url .. "/payments", {
         method = "POST",
-        headers = { ["Content-Type"] = "application/json" },
-        body = payload,
+        headers = {
+            ["Content-Type"] = "application/json"
+        },
+        body = payload
     })
     if not res or res.status ~= 200 then
         return false, "HTTP " .. (res and res.status or 0) .. " from " .. processor_type
     end
-    
+
     -- Update statistics in Redis with timestamp
     local red, err = get_redis()
     if red then
@@ -54,10 +56,10 @@ local function process_with_processor(payment_data, processor_type)
             ts_ms = math.floor(now_sec * 1000)
         end
         local timestamp = math.floor(ts_ms / 1000)
-        
-    local payment_key = "payment:" .. payment_data.correlationId
 
-    -- Store and aggregate using a single pipeline to reduce Redis RTTs
+        local payment_key = "payment:" .. payment_data.correlationId
+
+        -- Store and aggregate using a single pipeline to reduce Redis RTTs
         red:init_pipeline()
 
         -- Store payment details with timestamp
@@ -68,14 +70,15 @@ local function process_with_processor(payment_data, processor_type)
             timestamp = timestamp,
             requestedAt = payment_data.requestedAt
         })
-        red:setex(payment_key, 3600, payment_record)  -- TTL 1 hour
+        red:setex(payment_key, 3600, payment_record) -- TTL 1 hour
 
         -- Add to a sorted set for time-based diagnostics (kept for compatibility)
-    red:zadd("payments_by_time", timestamp, payment_data.correlationId)
-    -- Millisecond-precision timeline for accurate window queries (based on requestedAt)
-    -- Store enriched member to eliminate subsequent GETs during summary aggregation
-    local z_member_ms = tostring(payment_data.correlationId) .. "|" .. tostring(processor_type) .. "|" .. tostring(payment_data.amount)
-    red:zadd("payments_by_time_ms", ts_ms, z_member_ms)
+        red:zadd("payments_by_time", timestamp, payment_data.correlationId)
+        -- Millisecond-precision timeline for accurate window queries (based on requestedAt)
+        -- Store enriched member to eliminate subsequent GETs during summary aggregation
+        local z_member_ms = tostring(payment_data.correlationId) .. "|" .. tostring(processor_type) .. "|" ..
+                                tostring(payment_data.amount)
+        red:zadd("payments_by_time_ms", ts_ms, z_member_ms)
 
         -- Update total counters
         local key_requests = "stats:" .. processor_type .. "_total_requests"
@@ -98,58 +101,60 @@ local function process_with_processor(payment_data, processor_type)
         red:commit_pipeline()
         red:set_keepalive(10000, 50)
     end
-    
+
     return true, nil
 end
 
 -- Process a single payment with failover logic
 local function process_payment(payment_data)
     local health_cache = ngx.shared.health_cache
-    
+
     -- Check which processor to use first
     local default_healthy = health_cache:get("default_healthy")
     local fallback_healthy = health_cache:get("fallback_healthy")
-    
+
     local processors_to_try = {}
-    
+
     -- Prioritize default processor if healthy (lower fees)
     if default_healthy then
         table.insert(processors_to_try, "default")
     end
-    
+
     if fallback_healthy then
         table.insert(processors_to_try, "fallback")
     end
-    
+
     -- If both are unhealthy, still try both in order
     if #processors_to_try == 0 then
         processors_to_try = {"default", "fallback"}
     end
-    
+
     -- Try processors in order
     for _, processor_type in ipairs(processors_to_try) do
         local success, err = process_with_processor(payment_data, processor_type)
         if success then
             return true, processor_type
         end
-        
+
         ngx.log(ngx.ERR, "Payment processing failed with " .. processor_type .. ": " .. (err or "unknown"))
-        
+
         -- Mark processor as unhealthy on failure
         health_cache:set(processor_type .. "_healthy", false, 30)
     end
-    
+
     return false, "All processors failed"
 end
 
 -- Worker function to process queued payments
 function _M.start_worker()
     if ngx.worker.id() ~= 0 then
-        return  -- Only run spawner on worker 0
+        return -- Only run spawner on worker 0
     end
 
     local function loop_worker(premature)
-        if premature then return end
+        if premature then
+            return
+        end
 
         -- Get one Redis connection for this blocking pop
         local red, err = get_redis()
@@ -181,9 +186,12 @@ function _M.start_worker()
                             red2:rpush(_G.config.queue.name, cjson.encode(payment_data))
                             red2:set_keepalive(10000, 100)
                         end
-                        ngx.log(ngx.WARN, "Payment retry " .. retry_count .. " for " .. tostring(payment_data.correlationId))
+                        ngx.log(ngx.WARN,
+                            "Payment retry " .. retry_count .. " for " .. tostring(payment_data.correlationId))
                     else
-                        ngx.log(ngx.ERR, "Payment failed permanently: " .. tostring(payment_data.correlationId) .. " - " .. tostring(result))
+                        ngx.log(ngx.ERR,
+                            "Payment failed permanently: " .. tostring(payment_data.correlationId) .. " - " ..
+                                tostring(result))
                     end
                 end
             else
