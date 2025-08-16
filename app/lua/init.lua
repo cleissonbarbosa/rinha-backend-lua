@@ -24,7 +24,7 @@ _G.config = {
     queue = {
         name = "payment_queue",
         max_retries = 3,
-        retry_delay = 1000,
+        retry_delay = 200,
         concurrency = tonumber(os.getenv("QUEUE_CONCURRENCY")) or 8
     },
     instance_id = os.getenv("INSTANCE_ID") or "app1"
