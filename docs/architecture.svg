@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-label="Architecture diagram for rinha-backend-lua">
+  <defs>
+    <style>
+      .title{font: bold 20px sans-serif;}
+      .label{font: 14px sans-serif;}
+      .small{font: 12px monospace;}
+      .box{fill:#fff;stroke:#333;stroke-width:1.5;rx:8;ry:8;}
+      .service{fill:#d5e8d4;stroke:#82b366;}
+      .gateway{fill:#fff2cc;stroke:#d6b656;}
+      .client{fill:#dae8fc;stroke:#6c8ebf;}
+      .db{fill:#f8cecc;stroke:#b85450;}
+      .ext{fill:#e1d5e7;stroke:#9673a6;}
+      .arrow{stroke:#333;stroke-width:1.5;marker-end:url(#arrowhead);}    
+      .dashed{stroke-dasharray:6 4;}
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+    </marker>
+  </defs>
+  <text x="20" y="30" class="title">rinha-backend-lua: High-level Architecture</text>
+
+  <!-- Client -->
+  <rect x="40" y="90" width="160" height="60" class="box client"/>
+  <text x="50" y="120" class="label">Client (HTTP)</text>
+
+  <!-- Nginx Gateway -->
+  <rect x="240" y="80" width="230" height="80" class="box gateway"/>
+  <text x="250" y="110" class="label">Nginx Gateway (port 9999)</text>
+  <text x="250" y="130" class="small">nginx/nginx.conf</text>
+
+  <!-- App Instances -->
+  <rect x="520" y="40" width="230" height="70" class="box service"/>
+  <text x="530" y="70" class="label">app1 (OpenResty)</text>
+  <text x="530" y="90" class="small">app/nginx.conf + Lua</text>
+
+  <rect x="520" y="140" width="230" height="70" class="box service"/>
+  <text x="530" y="170" class="label">app2 (OpenResty)</text>
+  <text x="530" y="190" class="small">app/nginx.conf + Lua</text>
+
+  <!-- Redis -->
+  <rect x="820" y="80" width="200" height="80" class="box db"/>
+  <text x="830" y="110" class="label">Redis (queue + stats)</text>
+  <text x="830" y="130" class="small">redis/redis.conf</text>
+
+  <!-- Payment Processors -->
+  <rect x="520" y="280" width="300" height="70" class="box ext"/>
+  <text x="530" y="310" class="label">Payment Processor Default</text>
+  <text x="530" y="330" class="small">http://payment-processor-default:8080</text>
+
+  <rect x="860" y="280" width="300" height="70" class="box ext"/>
+  <text x="870" y="310" class="label">Payment Processor Fallback</text>
+  <text x="870" y="330" class="small">http://payment-processor-fallback:8080</text>
+
+  <!-- Flows / Arrows -->
+  <line x1="200" y1="120" x2="240" y2="120" class="arrow"/>
+  <line x1="470" y1="120" x2="520" y2="75" class="arrow"/>
+  <line x1="470" y1="120" x2="520" y2="175" class="arrow"/>
+
+  <line x1="750" y1="75" x2="820" y2="105" class="arrow"/>
+  <line x1="750" y1="175" x2="820" y2="135" class="arrow"/>
+
+  <line x1="635" y1="210" x2="670" y2="280" class="arrow dashed"/>
+  <line x1="635" y1="210" x2="990" y2="280" class="arrow dashed"/>
+  <line x1="635" y1="110" x2="670" y2="280" class="arrow dashed"/>
+  <line x1="635" y1="110" x2="990" y2="280" class="arrow dashed"/>
+
+  <!-- Notes -->
+  <rect x="40" y="260" width="440" height="180" class="box gateway"/>
+  <text x="50" y="290" class="label">Flows</text>
+  <text x="50" y="315" class="small">1) Client -> Nginx (9999) -> appX /payments (202)</text>
+  <text x="50" y="335" class="small">2) appX enqueues to Redis (LPUSH), worker BLPOP</text>
+  <text x="50" y="355" class="small">3) Worker POST /payments to default, failover to fallback</text>
+  <text x="50" y="375" class="small">4) Stats in Redis: totals, per-second buckets, ZSET timeline</text>
+  <text x="50" y="395" class="small">5) /payments-summary reads counters or [from,to) window</text>
+</svg>
