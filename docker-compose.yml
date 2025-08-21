@@ -24,7 +24,7 @@ services:
       resources:
         limits:
           cpus: "0.3"
-          memory: "100MB"
+          memory: "60MB"
 
   app1:
     build: .
@@ -84,4 +84,4 @@ services:
       resources:
         limits:
           cpus: "0.2"
-          memory: "50MB"
+          memory: "90MB"
