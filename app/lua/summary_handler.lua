@@ -51,7 +51,7 @@ else
         -- Enforce [from, to) semantics precisely using Redis exclusive upper bound
         -- Use string syntax "(score" to make the upper bound exclusive, avoiding off-by-one issues
         local min_bound = tostring(from_ms)
-        local max_bound = "(" .. tostring(to_ms)
+        local max_bound = tostring(to_ms)
         local members = red:zrangebyscore("payments_by_time_ms", min_bound, max_bound)
         if members and members ~= ngx.null and #members > 0 then
             local all_enriched = true
